@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && git add -A && git diff --cached --quiet || git commit -m \"chore: auto-commit from claude session\" --no-verify 2>&1",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

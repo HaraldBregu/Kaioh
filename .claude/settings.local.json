@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(git *)",
+      "Skill(update-config)",
+      "Bash(bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && git add -A && git diff --cached --quiet || echo \"\\(would commit\\)\"')"
+    ]
+  }
+}
