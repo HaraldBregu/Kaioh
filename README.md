@@ -1,11 +1,11 @@
-# Part 4 — Heartbeat + Cron (TypeScript)
+# Kaioh
 
-Proactive AI assistant: agent wakes on a schedule, checks a workspace checklist, and messages the user without being asked. Users can also schedule future tasks via natural language. Telegram gateway + persistent sessions.
+Proactive AI assistant. Agent wakes on a schedule, checks a workspace checklist, and messages the user without being asked. Users can also schedule future tasks via natural language. Telegram gateway + persistent sessions.
 
 ## Layout
 
 ```
-part-4_ts/
+Kaioh/
 ├── src/
 │   ├── main.ts              # CLI entry (single-shot + interactive REPL)
 │   ├── gateway.ts           # Telegram gateway, message/heartbeat/cron tasks
@@ -58,7 +58,7 @@ Messages, heartbeat, and cron all funnel through one shared inbound queue handle
 ## Setup
 
 ```bash
-cd part-4_ts
+cd Kaioh
 npm install
 export OPENROUTER_API_KEY=your_key_here
 ```
