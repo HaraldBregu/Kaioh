@@ -44,7 +44,7 @@ Running `npm run dev` should start the local interactive CLI. Running `npm run d
 The installation script should:
 
 - Detect the operating system and CPU architecture.
-- Install or update the OpenArmy runtime.
+- Install or update the Kaioh runtime.
 - Create the required local directories.
 - Initialize default configuration files.
 - Register bundled tools and built-in skills.
@@ -189,7 +189,7 @@ Future tool groups such as shell commands, web search, image generation, browser
 
 Skills should be reusable instruction packages that extend assistant behavior for a specific workflow or domain. Skills do not execute code by themselves; they provide instructions, references, templates, scripts, and metadata that the assistant may load during a run.
 
-Use the Agent Skills format as the compatibility baseline: https://agentskills.io/home. OpenArmy can add runtime-specific metadata, but skills should remain portable folders centered on `SKILL.md`.
+Use the Agent Skills format as the compatibility baseline: https://agentskills.io/home. Kaioh can add runtime-specific metadata, but skills should remain portable folders centered on `SKILL.md`.
 
 Skills can be bundled as built-in skills or installed from the command line. The CLI should support adding skills with:
 
@@ -197,12 +197,12 @@ Skills can be bundled as built-in skills or installed from the command line. The
 oa skills -a "name of skill"
 ```
 
-Built-in skills should live in the packaged runtime. Installed skills should be persisted in the configured skill directory and registered through the same `SkillRegistry` used by the CLI, Node.js API, and HTTP server.
+Built-in skills should live in the packaged runtime. Installed skills should be persisted in the configured skill directory and registered through the same `SkillRegistry` used by the CLI and any optional adapters.
 
 Each skill should include:
 
 - `SKILL.md`: required primary instructions with frontmatter metadata such as `name` and `description`.
-- Optional `skill.json`: OpenArmy-specific metadata such as skill id, version, permissions, compatibility, and trigger overrides.
+- Optional `skill.json`: Kaioh-specific metadata such as skill id, version, permissions, compatibility, and trigger overrides.
 - Optional `references/`, `scripts/`, `templates/`, or `assets/` directories.
 - Required tool permissions.
 - Version metadata.
@@ -273,7 +273,7 @@ Skills should not bypass the tool permission model. If a skill needs filesystem,
 
 ## 8. Custom MCP
 
-The runtime should support custom MCP servers as optional extensions. MCP configuration should be managed through the CLI and stored in local configuration so the CLI, Node.js API, and HTTP server all load the same MCP registry.
+The runtime should support custom MCP servers as optional extensions. MCP configuration should be managed through the CLI and stored in local configuration so the CLI and any optional adapters load the same MCP registry.
 
 The CLI should support adding an MCP configuration with:
 
@@ -323,9 +323,9 @@ Each provider configuration should include:
 
 The runtime should allow agents to choose from configured providers according to policy. Provider selection can be static per agent at first, then later become dynamic based on task type, cost, latency, context length, or fallback rules.
 
-## 10. HTTP API
+## 10. Optional HTTP API
 
-The HTTP API should expose management and execution endpoints.
+When the gateway adapter is enabled, the HTTP API should expose management and execution endpoints.
 
 Initial endpoint groups:
 
@@ -533,11 +533,11 @@ npm run typecheck
 npm run test:smoke
 ```
 
-Use Vitest for unit and integration tests. Use smoke tests for CLI startup, local runtime startup, and HTTP server startup.
+Use Vitest for unit and integration tests. Use smoke tests for CLI startup, local runtime startup, and optional HTTP server startup.
 
 Required test coverage areas:
 
-- `RuntimeCore` composition shared by CLI, Node.js API, and HTTP server.
+- `RuntimeCore` composition shared by the CLI and optional adapters.
 - Agent registration, run creation, status transitions, cancellation, and concurrency limits.
 - Workspace creation, run isolation, path traversal rejection, symlink escape rejection, and read/write size limits.
 - Tool search selection, rejected candidate filtering, least-privilege selection, and execution through `ToolRegistry`.
@@ -614,7 +614,7 @@ Tests should use temporary workspaces and must clean up after themselves. Tests 
 These questions should be resolved as the design improves:
 
 - Should agent definitions live in npm plugin metadata, local config files, or a dedicated registry?
-- Should workspaces be stored under the existing OpenArmy home directory or inside each project?
+- Should workspaces be stored under the existing Kaioh home directory or inside each project?
 - Which model providers should be supported first?
 - Should the HTTP server be built into the CLI process or run as a separate server?
 - What authentication model should local development use?
