@@ -362,7 +362,7 @@ Every agent run should receive an isolated workspace.
 Workspace layout recommendation:
 
 ```text
-.openarmy/
+~/.ai-assistant/workspace/
   agents/
     <agent-id>/
       config.json
@@ -453,8 +453,8 @@ Heartbeat requirements:
 
 - Record heartbeat timestamp per active run.
 - Mark runs as stale when the heartbeat timeout is exceeded.
-- Expose heartbeat events through HTTP status and log endpoints.
-- Expose heartbeat status through the HTTP API.
+- Expose heartbeat events through local status and log commands.
+- Expose heartbeat status through the optional HTTP API when the gateway is enabled.
 - Allow recovery logic for stalled runs.
 
 Heartbeat state should be visible in run metadata and logs.
@@ -490,8 +490,8 @@ Initial configuration areas:
 - Model providers.
 - Default agent policies.
 - Workspace root.
-- HTTP server host and port.
-- HTTP request body, prompt, and upload size limits.
+- Optional HTTP gateway host and port.
+- Optional HTTP request body, prompt, and upload size limits.
 - Scheduler enabled/disabled.
 - Heartbeat intervals.
 - Tool permissions.
@@ -512,10 +512,10 @@ Required controls:
 - Network access policy.
 - MCP server and MCP tool permission checks.
 - Secret redaction in logs.
-- API authentication.
-- HTTP API authorization.
+- Optional gateway API authentication.
+- Optional HTTP API authorization.
 - Upload filename sanitization, content type validation, and file size limits.
-- Rate limits for HTTP API traffic.
+- Rate limits for optional HTTP API traffic.
 - Per-agent concurrency limits.
 - Audit logs for mutating operations.
 
@@ -549,8 +549,8 @@ Required test coverage areas:
 - Skill discovery, filtered catalogs, activation, resource listing, activation deduplication, context protection, and eval case loading.
 - MCP registry behavior for custom MCP configuration through `oa mcp -a "example"`.
 - MCP permission enforcement so custom MCP tools are unavailable unless explicitly allowed for the agent.
-- HTTP API JSON envelopes, stable error codes, authentication, authorization, and rate limits.
-- HTTP run creation with prompt-only JSON, multipart prompt plus files, upload size limits, filename sanitization, and run input workspace persistence.
+- Optional HTTP API JSON envelopes, stable error codes, authentication, authorization, and rate limits.
+- Optional HTTP run creation with prompt-only JSON, multipart prompt plus files, upload size limits, filename sanitization, and run input workspace persistence.
 - Scheduler execution, skipped overlapping runs, missed runs, and schedule history.
 - Heartbeat updates, stale-run detection, and heartbeat events in run metadata.
 - Secret redaction in logs, audit records, tool results, and error responses.
@@ -578,11 +578,11 @@ Tests should use temporary workspaces and must clean up after themselves. Tests 
 - Track skill and tool usage in run metadata.
 - Add tests for skill installation, MCP registration, tool permissions, and audit logs.
 
-### Phase 3: HTTP API
+### Phase 3: Optional HTTP Gateway
 
-- Add HTTP API.
+- Add the optional HTTP API.
 - Stream run events and logs.
-- Add structured API errors.
+- Add structured gateway API errors.
 - Add tests for health, agents, runs, tools, skills, MCP, providers, logs, auth, and rate limits.
 
 ### Phase 4: Scheduling and Heartbeat
@@ -616,7 +616,7 @@ These questions should be resolved as the design improves:
 - Should agent definitions live in npm plugin metadata, local config files, or a dedicated registry?
 - Should workspaces be stored under the existing Kaioh home directory or inside each project?
 - Which model providers should be supported first?
-- Should the HTTP server be built into the CLI process or run as a separate server?
+- Should the optional HTTP gateway be launched as a CLI subcommand or as a separate server process?
 - What authentication model should local development use?
 - How much run history should be retained by default?
 - Should scheduler state be file-based first or database-backed from the start?
