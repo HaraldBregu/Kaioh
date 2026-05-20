@@ -29,8 +29,27 @@ const WebSocketMessageSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+class RateLimiter {
+  private windows = new Map<string, number[]>();
+
+  constructor(
+    private maxRequests = 60,
+    private windowMs = 60_000,
+  ) {}
+
+  allow(key: string): boolean {
+    const now = Date.now();
+    const timestamps = (this.windows.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (timestamps.length >= this.maxRequests) return false;
+    timestamps.push(now);
+    this.windows.set(key, timestamps);
+    return true;
+  }
+}
+
 export class GatewayServer {
   private server: http.Server;
+  private rateLimiter = new RateLimiter();
 
   constructor(
     private config: GatewayConfig,
