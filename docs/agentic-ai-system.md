@@ -2,9 +2,9 @@
 
 ## 1. Purpose
 
-OpenArmy should first become a minimal AI assistant runtime with basic filesystem tools, a file parsing tool, and a web scraping tool, then evolve from a CLI tool manager into an agentic AI runtime that can run configurable agents with tools, skills, isolated workspaces, model providers, an HTTP API gateway, scheduling, heartbeat monitoring, and multi-agent orchestration.
+Kaioh's purpose is to run as a local, CLI-first AI agent. It should let a user start an agent from the terminal, work inside isolated local workspaces, use controlled filesystem and scheduling tools, load skills, and call configurable model providers without requiring a hosted service.
 
-The minimal assistant should be runnable through three separate entry modules: a CLI, a Node.js module API, and an HTTP server. These entry modules should share the same core runtime implementation instead of duplicating agent execution, workspace, tool, skill, or provider logic.
+The CLI is the primary product surface. Optional Node.js module or HTTP/WebSocket gateway adapters may exist, but they should remain thin wrappers over the same local runtime and must not become required for normal agent use.
 
 This document defines the first implementation direction. Treat each section as a requirement area that can be refined into tickets, architecture docs, and code changes.
 
@@ -15,8 +15,9 @@ The system should implement an agent runtime that can:
 - Execute one or more agents concurrently.
 - Track each agent run from creation to completion.
 - Give every agent an isolated workspace for reading, writing, and persisting task data.
-- Run through the CLI, an importable Node.js API, or the HTTP server using the same runtime core.
-- Expose agent capabilities through an HTTP API.
+- Run locally through the CLI as the primary interface.
+- Keep optional Node.js API or HTTP/WebSocket gateway adapters on the same runtime core when they are needed.
+- Expose day-to-day agent management through CLI commands.
 - Support basic filesystem tools, a file parsing tool, a web scraping tool, and later other configurable tool groups.
 - Support built-in skills and skills installed from the command line.
 - Support multiple model providers with runtime configuration.
@@ -38,7 +39,7 @@ For local development, the project should be executable with:
 npm run dev
 ```
 
-Running `npm run dev` should automatically create and start the local HTTP server for the agent runtime. The local development process should only start the HTTP server.
+Running `npm run dev` should start the local interactive CLI. Running `npm run dev -- "prompt"` should execute a single local CLI run. The HTTP/WebSocket gateway should be started only when explicitly requested, such as through `npm run dev:gateway`.
 
 The installation script should:
 
@@ -57,15 +58,15 @@ The CLI should support installing or registering additional skills with:
 oa skills -a "name of skill"
 ```
 
-Installed skills should be persisted in the configured skill directory and made available to agents through the same `SkillRegistry` used by the CLI, Node.js API, and HTTP server.
+Installed skills should be persisted in the configured skill directory and made available to agents through the same `SkillRegistry` used by the CLI and any optional adapters.
 
 ## 4. Core Architecture
 
 The first architecture should include these modules:
 
-- `RuntimeCore`: composes the shared runtime services used by every entry module.
+- `RuntimeCore`: composes the shared runtime services used by the CLI and optional adapters.
 - `CliEntrypoint`: runs the assistant and management commands from the command line.
-- `NodeRuntimeModule`: exposes the assistant runtime as an importable Node.js API.
+- `NodeRuntimeModule`: optionally exposes the assistant runtime as an importable Node.js API.
 - `AgentRuntime`: creates, starts, stops, resumes, and supervises agents.
 - `AgentRegistry`: stores known agent definitions, versions, status, and metadata.
 - `RunTracker`: records active, completed, failed, paused, and cancelled runs.
@@ -73,11 +74,11 @@ The first architecture should include these modules:
 - `ToolRegistry`: registers tool groups and controls which tools an agent can use.
 - `SkillRegistry`: registers skills and resolves skill instructions/assets for an agent.
 - `ModelProviderRegistry`: manages configured model providers and model selection.
-- `HttpServer`: exposes the HTTP API and starts automatically in local development.
+- `HttpServer`: optionally exposes the HTTP API when the gateway is explicitly started.
 - `Scheduler`: runs agents on cron schedules.
 - `HeartbeatMonitor`: records liveness and detects stalled agents.
 
-Keep these boundaries explicit so the CLI, Node.js API, HTTP API, scheduler, and future UI can all use the same runtime services. The CLI, Node.js module, and HTTP server should be thin adapters over `RuntimeCore`; they must not implement separate agent execution logic.
+Keep these boundaries explicit so the local CLI remains the primary interface while optional adapters, scheduler, and future UI can all use the same runtime services. The CLI, Node.js module, and HTTP server should be thin adapters over `RuntimeCore`; they must not implement separate agent execution logic.
 
 ## 5. Agent Definition
 
