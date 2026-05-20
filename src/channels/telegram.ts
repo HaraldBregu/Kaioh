@@ -1,23 +1,26 @@
+import { randomUUID } from "node:crypto";
 import { Bot } from "grammy";
-import type { AsyncQueue, InboundMessage } from "../types.js";
+import type { AgentEvent, AsyncQueue } from "../types.js";
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
 export class TelegramAdapter {
   private bot: Bot;
   private allowFrom: Set<string>;
-  private queue: AsyncQueue<InboundMessage>;
+  private queue: AsyncQueue<AgentEvent>;
+  private agentId: string;
 
   constructor(opts: {
     bot_token: string;
     allow_from: string[];
-    queue: AsyncQueue<InboundMessage>;
+    queue: AsyncQueue<AgentEvent>;
+    agent_id: string;
   }) {
     this.bot = new Bot(opts.bot_token);
     this.allowFrom = new Set(opts.allow_from.map(String));
     this.queue = opts.queue;
+    this.agentId = opts.agent_id;
 
-    // plain text only — no commands, photos, stickers, etc.
     this.bot.on("message:text", async (ctx) => {
       const text = ctx.message.text;
       if (!text || text.startsWith("/")) return;
@@ -28,11 +31,19 @@ export class TelegramAdapter {
         return;
       }
 
+      const chatId = String(ctx.chat.id);
       this.queue.put({
-        channel: "telegram",
-        chat_id: String(ctx.chat.id),
-        sender_id: senderId,
+        id: randomUUID(),
+        agentId: this.agentId,
+        source: "channel",
+        conversationId: `telegram:${chatId}`,
+        userId: senderId,
         text,
+        metadata: {
+          channel: "telegram",
+          chat_id: chatId,
+        },
+        createdAt: new Date().toISOString(),
       });
     });
   }
@@ -47,11 +58,9 @@ export class TelegramAdapter {
   }
 
   async start(): Promise<void> {
-    // start polling without awaiting (start() resolves only on stop)
     this.bot.start({ drop_pending_updates: true }).catch((e) => {
       console.error("Telegram polling error:", e);
     });
-    // give grammy a tick to init
     await new Promise((r) => setTimeout(r, 100));
   }
 
@@ -59,3 +68,4 @@ export class TelegramAdapter {
     await this.bot.stop();
   }
 }
+

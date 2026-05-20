@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
-import os from "node:os";
-import path from "node:path";
-import { Tool } from "./base.js";
+import { Tool, type ToolExecutionContext, type ToolExecutionResult } from "./base.js";
 
 const DANGEROUS_PATTERNS: RegExp[] = [
   /rm\s+-rf\s+\//,
@@ -10,8 +8,6 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /:\(\)\s*\{.*\}/, // fork bomb
   />\s*\/dev\/sd/,
 ];
-
-const WORKSPACE = path.join(os.homedir(), ".ai-assistant", "workspace");
 
 export class ExecTool extends Tool {
   name = "exec";
@@ -35,19 +31,22 @@ export class ExecTool extends Tool {
     this.timeoutMs = timeoutSeconds * 1000;
   }
 
-  async execute(args: Record<string, unknown>): Promise<string> {
+  async execute(args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
     const command = String(args.command);
 
     for (const pattern of DANGEROUS_PATTERNS) {
       if (pattern.test(command)) {
-        return `Blocked: command matches dangerous pattern '${pattern}'`;
+        return {
+          content: `Blocked: command matches dangerous pattern '${pattern}'`,
+          error: "dangerous_command",
+        };
       }
     }
 
     return new Promise((resolve) => {
       const proc = spawn(command, {
         shell: true,
-        cwd: WORKSPACE,
+        cwd: context.workspace.root,
         stdio: ["ignore", "pipe", "pipe"],
       });
 
@@ -57,18 +56,27 @@ export class ExecTool extends Tool {
 
       const timer = setTimeout(() => {
         proc.kill("SIGKILL");
-        resolve(`Error: command timed out after ${this.timeoutMs / 1000}s`);
+        resolve({
+          content: `Error: command timed out after ${this.timeoutMs / 1000}s`,
+          error: "timeout",
+        });
       }, this.timeoutMs);
 
       proc.on("error", (e) => {
         clearTimeout(timer);
-        resolve(`Error executing command: ${e.message}`);
+        resolve({
+          content: `Error executing command: ${e.message}`,
+          error: e.message,
+        });
       });
 
-      proc.on("close", () => {
+      proc.on("close", (code) => {
         clearTimeout(timer);
         const out = Buffer.concat(chunks).toString("utf8").trim();
-        resolve(out || "(no output)");
+        resolve({
+          content: out || "(no output)",
+          error: code && code !== 0 ? `exit_${code}` : undefined,
+        });
       });
     });
   }

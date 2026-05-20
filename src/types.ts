@@ -1,3 +1,39 @@
+export type AgentEventSource = "http" | "websocket" | "cron" | "heartbeat" | "channel";
+
+export interface AgentEvent {
+  id: string;
+  agentId: string;
+  source: AgentEventSource;
+  conversationId?: string;
+  userId?: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ToolCallRecord {
+  id: string;
+  eventId?: string;
+  agentId: string;
+  conversationId?: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  result: string;
+  startedAt: string;
+  finishedAt: string;
+  changedWorkspace: boolean;
+  error?: string;
+}
+
+export interface AgentResponse {
+  eventId: string;
+  agentId: string;
+  conversationId?: string;
+  text: string;
+  toolCalls?: ToolCallRecord[];
+  createdAt: string;
+}
+
 export interface InboundMessage {
   channel: string;
   chat_id: string;

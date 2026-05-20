@@ -1,39 +1,45 @@
 import readline from "node:readline/promises";
 import chalk from "chalk";
-import { buildSystemPrompt } from "./agent/context.js";
-import { runAgent } from "./agent/loop.js";
-import { MemoryManager } from "./agent/memory.js";
-import { SessionManager } from "./session/manager.js";
-import { ExecTool } from "./tools/exec.js";
-import { ReadFileTool, WriteFileTool } from "./tools/filesystem.js";
+import { loadConfig } from "./config/schema.js";
+import { CronService } from "./cron/service.js";
+import { createProviderRegistry } from "./providers/factory.js";
+import { AgentRuntime, workspaceCronPath } from "./runtime/agent-runtime.js";
+import { AsyncQueue, type AgentEvent } from "./types.js";
+import { WorkspaceManager } from "./workspace/manager.js";
 
 async function main(): Promise<void> {
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.error("Error: OPENROUTER_API_KEY env var not set");
-    process.exit(1);
-  }
+  const config = await loadConfig();
+  const workspaceManager = new WorkspaceManager(config.workspace.root);
+  const providers = createProviderRegistry(config.models);
+  const queue = new AsyncQueue<AgentEvent>();
+  const cron = new CronService(queue, workspaceCronPath(config.workspace.root), config.cron.poll_interval_ms);
+  await cron.load();
 
-  const memory = new MemoryManager();
-  await memory.init();
+  const runtime = new AgentRuntime({
+    config,
+    workspaceManager,
+    providers,
+    cron,
+  });
 
-  const session = new SessionManager("cli:default");
-  await session.init();
-  const history = await session.load();
+  const agentId = "default";
+  const conversationId = "cli:default";
 
-  const tools = [new ReadFileTool(), new WriteFileTool(), new ExecTool()];
-  const systemPrompt = await buildSystemPrompt(memory);
-
-  // Single-shot mode
   const argv = process.argv.slice(2);
   if (argv.length > 0) {
-    const userMessage = argv.join(" ");
-    const { newMessages } = await runAgent(userMessage, tools, history, systemPrompt);
-    await session.append(newMessages);
+    await runtime.handleEvent(
+      runtime.makeEvent({
+        agentId,
+        source: "channel",
+        conversationId,
+        text: argv.join(" "),
+        metadata: { channel: "cli" },
+      }),
+    );
     return;
   }
 
-  // Interactive loop
-  console.log(`${chalk.bold("AI Assistant")} — type ${chalk.dim("exit")} or ${chalk.dim("quit")} to stop\n`);
+  console.log(`${chalk.bold("AI Assistant")} - type ${chalk.dim("exit")} or ${chalk.dim("quit")} to stop\n`);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   while (true) {
@@ -51,9 +57,15 @@ async function main(): Promise<void> {
       break;
     }
 
-    const { newMessages } = await runAgent(userInput, tools, history, systemPrompt);
-    await session.append(newMessages);
-    history.push(...newMessages);
+    await runtime.handleEvent(
+      runtime.makeEvent({
+        agentId,
+        source: "channel",
+        conversationId,
+        text: userInput,
+        metadata: { channel: "cli" },
+      }),
+    );
     console.log();
   }
 
@@ -64,3 +76,4 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+

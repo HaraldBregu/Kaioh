@@ -1,21 +1,23 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
-const SESSIONS_DIR = path.join(os.homedir(), ".ai-assistant", "sessions");
+function safeFileName(value: string): string {
+  const safe = value.trim().replace(/[^a-zA-Z0-9_.:-]/g, "_");
+  return safe || "default";
+}
 
 export class SessionManager {
-  sessionKey: string;
-  filePath: string;
+  readonly sessionKey: string;
+  readonly filePath: string;
 
-  constructor(sessionKey: string) {
-    this.sessionKey = sessionKey;
-    this.filePath = path.join(SESSIONS_DIR, `${sessionKey}.jsonl`);
+  constructor(sessionKey: string, sessionsDir: string) {
+    this.sessionKey = safeFileName(sessionKey);
+    this.filePath = path.join(sessionsDir, `${this.sessionKey}.jsonl`);
   }
 
   async init(): Promise<void> {
-    await fs.mkdir(SESSIONS_DIR, { recursive: true });
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     try {
       await fs.access(this.filePath);
     } catch {
@@ -23,7 +25,7 @@ export class SessionManager {
         session_key: this.sessionKey,
         created_at: new Date().toISOString(),
       });
-      await fs.writeFile(this.filePath, meta + "\n");
+      await fs.writeFile(this.filePath, meta + "\n", "utf8");
     }
   }
 
@@ -42,16 +44,38 @@ export class SessionManager {
         delete entry.timestamp;
         messages.push(entry);
       } catch {
-        // skip
+        // skip invalid session lines
       }
     }
     return messages.slice(-n);
   }
 
+  async loadRaw(): Promise<unknown[]> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(this.filePath, "utf8");
+    } catch {
+      return [];
+    }
+    return raw
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as unknown;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is unknown => entry !== null);
+  }
+
   async append(messages: ChatCompletionMessageParam[]): Promise<void> {
+    if (messages.length === 0) return;
     const lines = messages
       .map((m) => JSON.stringify({ ...m, timestamp: new Date().toISOString() }))
       .join("\n");
-    await fs.appendFile(this.filePath, lines + "\n");
+    await fs.appendFile(this.filePath, lines + "\n", "utf8");
   }
 }
+

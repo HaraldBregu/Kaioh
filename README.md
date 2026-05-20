@@ -1,113 +1,170 @@
 # Kaioh
 
-Proactive AI assistant. Agent wakes on a schedule, checks a workspace checklist, and messages the user without being asked. Users can also schedule future tasks via natural language. Telegram gateway + persistent sessions.
+Agentic AI runtime with isolated workspaces, tool calling, skills, configurable model providers, cron/heartbeat automation, and HTTP/WebSocket gateway APIs. Telegram remains available as an optional channel adapter.
 
 ## Layout
 
-```
+```text
 Kaioh/
 ├── src/
-│   ├── main.ts              # CLI entry (single-shot + interactive REPL)
-│   ├── gateway.ts           # Telegram gateway, message/heartbeat/cron tasks
-│   ├── types.ts             # AsyncQueue + InboundMessage
-│   ├── agent/
-│   │   ├── context.ts       # build_system_prompt
-│   │   ├── loop.ts          # tool-calling agent loop
-│   │   └── memory.ts        # workspace seeding from templates
-│   ├── channels/
-│   │   └── telegram.ts      # grammy adapter, allow-list gate
-│   ├── config/
-│   │   └── schema.ts        # zod config + auto-create
-│   ├── cron/
-│   │   └── service.ts       # CronService (in:/interval:/cron expr)
-│   ├── session/
-│   │   └── manager.ts       # jsonl per-chat history
-│   └── tools/
-│       ├── base.ts          # Tool abstract class
-│       ├── exec.ts          # shell exec with dangerous-pattern guard
-│       ├── filesystem.ts    # read_file, write_file
-│       └── cron.ts          # cron_add, cron_list, cron_remove
-├── workspace-templates/     # seeded into ~/.ai-assistant/workspace on first run
+│   ├── main.ts                # CLI entry
+│   ├── gateway.ts             # HTTP/WebSocket/Telegram/Cron/Heartbeat composition root
+│   ├── types.ts               # AgentEvent, AgentResponse, ToolCallRecord, AsyncQueue
+│   ├── agent/                 # system prompt + tool-calling loop
+│   ├── audit/                 # per-agent JSONL audit logging
+│   ├── channels/              # Telegram adapter
+│   ├── config/                # zod config validation + default config
+│   ├── cron/                  # persistent scheduler
+│   ├── http/                  # HTTP routes + minimal WebSocket transport
+│   ├── providers/             # configurable model provider abstraction
+│   ├── runtime/               # normalized agent runtime
+│   ├── session/               # per-agent JSONL sessions
+│   ├── skills/                # skill loading
+│   ├── tools/                 # filesystem, cron, optional exec tools
+│   └── workspace/             # isolated workspace manager
+├── docs/
+│   └── agentic-ai-system.md
+├── workspace-templates/
 ├── package.json
-├── tsconfig.json
-└── README.md
+└── tsconfig.json
 ```
 
-## How it works
+## Runtime Model
 
-**Heartbeat** — background loop wakes every N minutes, reads `HEARTBEAT.md` from workspace, injects it as automated message. Agent acts or returns `HEARTBEAT_OK` to suppress output silently.
+All inputs are normalized into `AgentEvent` objects and handled by the same runtime:
 
-**Cron** — `CronService` runs alongside message loop. LLM schedules jobs via `cron_add`:
-- `in:5m` — one-shot, fires once after 5 minutes
-- `interval:3600` — recurring every N seconds
-- `0 9 * * *` — standard cron expression
+- HTTP requests.
+- WebSocket messages.
+- Cron events.
+- Heartbeat events.
+- Channel events such as Telegram or CLI.
 
-Messages, heartbeat, and cron all funnel through one shared inbound queue handled by the same message loop.
+Each agent gets an isolated workspace:
 
-## Stack
+```text
+~/.ai-assistant/workspace/
+  agents/
+    <agent-id>/
+      files/
+      memory/
+      skills/
+      sessions/
+      schedules/
+      logs/
+```
 
-| Concern               | Library                              |
-|-----------------------|--------------------------------------|
-| LLM client            | `openai` SDK + OpenRouter `baseURL`  |
-| Telegram              | `grammy`                             |
-| Cron parsing          | `cron-parser`                        |
-| Config validation     | `zod`                                |
-| Terminal output       | `chalk` + `marked-terminal`          |
-| UUIDs                 | `node:crypto.randomUUID`             |
+Filesystem tools resolve paths inside that agent root and reject path traversal or symlink escapes.
 
-## Setup
+## Tools
+
+Enabled by default:
+
+- `read_file`
+- `write_file`
+- `list_files`
+- `delete_file`
+- `create_directory`
+- `move_file`
+- `cron_add`
+- `cron_list`
+- `cron_remove`
+
+`exec` is available only when `tools.enable_exec` is explicitly set to `true` in config.
+
+## Gateway API
+
+Start the gateway:
 
 ```bash
-cd Kaioh
-npm install
-export OPENROUTER_API_KEY=your_key_here
+npm run dev:gateway
 ```
 
-`~/.ai-assistant/config.json` is auto-created on first gateway run. Edit to fill in:
+Default URL:
+
+```text
+http://127.0.0.1:8787
+```
+
+HTTP endpoints:
+
+- `GET /api/health`
+- `POST /api/agents/:agentId/messages`
+- `GET /api/agents/:agentId/sessions/:sessionId`
+- `GET /api/agents/:agentId/workspace/files?path=.`
+- `GET /api/agents/:agentId/workspace/files/*`
+- `POST /api/agents/:agentId/schedules`
+- `GET /api/agents/:agentId/schedules`
+- `DELETE /api/agents/:agentId/schedules/:scheduleId`
+
+WebSocket endpoint:
+
+```text
+ws://127.0.0.1:8787/api/ws
+```
+
+Send:
 
 ```json
 {
-  "telegram": {
-    "bot_token": "YOUR_BOT_TOKEN",
-    "allow_from": ["YOUR_TELEGRAM_USER_ID"]
-  },
-  "heartbeat": {
-    "enabled": true,
-    "interval": "30m",
-    "active_hours_start": "07:00",
-    "active_hours_end": "22:00",
-    "channel": "telegram",
-    "chat_id": "YOUR_TELEGRAM_USER_ID"
+  "type": "agent.message",
+  "agentId": "default",
+  "text": "List my workspace files"
+}
+```
+
+The server emits `gateway.ready`, `agent.tool_call`, `agent.tool_result`, `agent.response`, and `agent.error` events.
+
+## Configuration
+
+`~/.ai-assistant/config.json` is created and normalized on first run.
+
+Model providers are configured without changing the agent loop:
+
+```json
+{
+  "models": {
+    "defaultProvider": "openrouter",
+    "providers": {
+      "openrouter": {
+        "type": "openai-compatible",
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "apiKeyEnv": "OPENROUTER_API_KEY",
+        "defaultModel": "gpt-5.4"
+      },
+      "openai": {
+        "type": "openai",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "defaultModel": "gpt-5.4"
+      }
+    }
   }
 }
 ```
 
-Get a bot token from `@BotFather` on Telegram. Find your user ID via `@userinfobot`.
+Gateway auth uses the token in `gateway.auth_token_env`. If that env var is unset, local unauthenticated requests are allowed only when `gateway.allow_unauthenticated_localhost` is `true`.
 
 ## Run
 
 ```bash
+npm install
+
 # CLI single-shot
-npm run dev -- "list files in workspace"
+npm run dev -- "list files in my workspace"
 
 # CLI interactive REPL
 npm run dev
 
-# Telegram gateway (heartbeat + cron + chat)
+# HTTP/WebSocket gateway plus optional Telegram, heartbeat, and cron
 npm run dev:gateway
 
-# Production build
-npm run build
-npm run gateway        # runs dist/gateway.js
-npm start              # runs dist/main.js
-
-# Type check only
+# Type check and production build
 npm run typecheck
+npm run build
 ```
 
-## Persistence paths
+Set the provider key before using the agent:
 
-- `~/.ai-assistant/workspace/` — seeded markdown files the agent edits
-- `~/.ai-assistant/sessions/<channel>:<chat_id>.jsonl` — per-chat history
-- `~/.ai-assistant/cron.json` — scheduled jobs
-- `~/.ai-assistant/config.json` — telegram + heartbeat config
+```bash
+export OPENROUTER_API_KEY=your_key_here
+```
+
