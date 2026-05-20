@@ -1,6 +1,6 @@
 # Kaioh
 
-Agentic AI runtime with isolated workspaces, tool calling, skills, configurable model providers, cron/heartbeat automation, and HTTP/WebSocket gateway APIs. Telegram remains available as an optional channel adapter.
+Local CLI-first AI agent runtime with isolated workspaces, tool calling, skills, configurable model providers, and cron/heartbeat automation. HTTP/WebSocket gateway APIs and Telegram remain available as optional adapters.
 
 ## Layout
 
@@ -167,4 +167,3 @@ Set the provider key before using the agent:
 ```bash
 export OPENROUTER_API_KEY=your_key_here
 ```
-
