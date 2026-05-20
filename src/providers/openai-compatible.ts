@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletion } from "openai/resources/chat/completions";
-import type { ChatCompletionRequest, ChatModelProvider, OpenAIClientFactory, ProviderConfig } from "./base.js";
+import type { ChatCompletionRequest, ChatModelProvider, OpenAIClientFactory, ProviderConfig, StreamDelta } from "./base.js";
 
 export class OpenAICompatibleProvider implements ChatModelProvider {
   readonly name: string;
@@ -28,6 +28,29 @@ export class OpenAICompatibleProvider implements ChatModelProvider {
       ...request,
       model: request.model ?? this.defaultModel,
     });
+  }
+
+  async *createChatCompletionStream(request: ChatCompletionRequest): AsyncGenerator<StreamDelta> {
+    const stream = await this.client.chat.completions.create({
+      ...request,
+      model: request.model ?? this.defaultModel,
+      stream: true,
+    });
+    for await (const chunk of stream) {
+      const choice = chunk.choices[0];
+      if (!choice) continue;
+      const delta: StreamDelta = { finishReason: choice.finish_reason };
+      if (choice.delta.content) delta.content = choice.delta.content;
+      if (choice.delta.tool_calls?.length) {
+        delta.toolCallDeltas = choice.delta.tool_calls.map((tc) => ({
+          index: tc.index,
+          id: tc.id,
+          name: tc.function?.name,
+          args: tc.function?.arguments,
+        }));
+      }
+      yield delta;
+    }
   }
 }
 
