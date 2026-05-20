@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import chalk from "chalk";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
-import type { ChatCompletionMessageParam, ChatCompletionMessageToolCall } from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { AuditLogger } from "../audit/logger.js";
 import type { ChatModelProvider } from "../providers/base.js";
 import type { ToolCallRecord } from "../types.js";
@@ -33,6 +33,7 @@ export interface RunResult {
 export interface RunAgentCallbacks {
   onToolCallStart?: (data: { id: string; name: string; args: Record<string, unknown> }) => void | Promise<void>;
   onToolCallResult?: (record: ToolCallRecord) => void | Promise<void>;
+  onDelta?: (delta: string) => void | Promise<void>;
 }
 
 export interface RunAgentOptions {
@@ -45,6 +46,64 @@ export interface RunAgentOptions {
   toolContext: ToolExecutionContext;
   auditLogger?: AuditLogger;
   callbacks?: RunAgentCallbacks;
+}
+
+interface ResolvedTurn {
+  content: string;
+  toolCalls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
+}
+
+async function callProvider(
+  provider: ChatModelProvider,
+  request: Parameters<ChatModelProvider["createChatCompletion"]>[0],
+  onDelta?: (delta: string) => void | Promise<void>,
+): Promise<ResolvedTurn> {
+  if (onDelta && provider.createChatCompletionStream) {
+    let content = "";
+    const accumulated = new Map<number, { id: string; name: string; args: string }>();
+
+    for await (const delta of provider.createChatCompletionStream(request)) {
+      if (delta.content) {
+        content += delta.content;
+        await onDelta(delta.content);
+      }
+      if (delta.toolCallDeltas) {
+        for (const tc of delta.toolCallDeltas) {
+          const existing = accumulated.get(tc.index) ?? { id: "", name: "", args: "" };
+          if (tc.id) existing.id = tc.id;
+          if (tc.name) existing.name += tc.name;
+          if (tc.args) existing.args += tc.args;
+          accumulated.set(tc.index, existing);
+        }
+      }
+    }
+
+    const toolCalls =
+      accumulated.size > 0
+        ? Array.from(accumulated.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([, tc]) => ({
+              id: tc.id,
+              type: "function" as const,
+              function: { name: tc.name, arguments: tc.args },
+            }))
+        : undefined;
+
+    return { content, toolCalls };
+  }
+
+  const response = await provider.createChatCompletion(request);
+  const msg = response.choices[0]?.message;
+  if (!msg) throw new Error("model returned no message");
+
+  return {
+    content: msg.content ?? "",
+    toolCalls: msg.tool_calls?.map((tc) => ({
+      id: tc.id,
+      type: "function" as const,
+      function: { name: tc.function.name, arguments: tc.function.arguments },
+    })),
+  };
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
@@ -61,45 +120,35 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
   if (options.userMessage) newMessages.push({ role: "user", content: options.userMessage });
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await options.provider.createChatCompletion({
-      model: options.model,
-      messages,
-      tools: toolSchemas.length ? toolSchemas : undefined,
-    });
-
-    const msg = response.choices[0]?.message;
-    if (!msg) {
-      const error = "Error: model returned no message";
+    let turn: ResolvedTurn;
+    try {
+      turn = await callProvider(
+        options.provider,
+        { model: options.model, messages, tools: toolSchemas.length ? toolSchemas : undefined },
+        options.callbacks?.onDelta,
+      );
+    } catch (e) {
+      const error = `Error: ${(e as Error).message}`;
       console.log(panel("error", error, "red"));
       return { text: error, newMessages, toolCalls };
     }
 
-    const assistantMsg: ChatCompletionMessageParam = {
-      role: "assistant",
-      content: msg.content ?? "",
-    };
-    if (msg.tool_calls && msg.tool_calls.length) {
-      (assistantMsg as any).tool_calls = msg.tool_calls.map((tc: ChatCompletionMessageToolCall) => ({
-        id: tc.id,
-        type: "function",
-        function: {
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        },
-      }));
+    const assistantMsg: ChatCompletionMessageParam = { role: "assistant", content: turn.content };
+    if (turn.toolCalls?.length) {
+      (assistantMsg as any).tool_calls = turn.toolCalls;
     }
 
     messages.push(assistantMsg);
     newMessages.push(assistantMsg);
 
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      const text = msg.content ?? "";
+    if (!turn.toolCalls?.length) {
+      const text = turn.content;
       const rendered = (await marked.parse(text)).toString().trimEnd();
       console.log(panel("assistant", rendered, "green"));
       return { text, newMessages, toolCalls };
     }
 
-    for (const tc of msg.tool_calls) {
+    for (const tc of turn.toolCalls) {
       const fnName = tc.function.name;
       let fnArgs: Record<string, unknown> = {};
       try {
